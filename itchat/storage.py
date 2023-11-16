@@ -42,17 +42,22 @@ class Storage:
             for k in ('RemarkName', 'NickName', 'Alias'):
                 if matchDict[k] is None: del matchDict[k]
             if name: # select based on name
-                contract = []
-                for m in self.memberList:
-                    if any([m.get(k) == name for k in ('RemarkName', 'NickName', 'Alias')]):
-                        contract.append(m)
+                contract = [
+                    m
+                    for m in self.memberList
+                    if any(
+                        m.get(k) == name
+                        for k in ('RemarkName', 'NickName', 'Alias')
+                    )
+                ]
             else:
                 contract = self.memberList[:]
             if matchDict: # select again based on matchDict
-                friendList = []
-                for m in contract:
-                    if all([m.get(k) == v for k, v in matchDict.items()]):
-                        friendList.append(m)
+                friendList = [
+                    m
+                    for m in contract
+                    if all(m.get(k) == v for k, v in matchDict.items())
+                ]
                 return copy.deepcopy(friendList)
             else:
                 return copy.deepcopy(contract)
@@ -61,16 +66,10 @@ class Storage:
             for m in self.chatroomList:
                 if m['UserName'] == userName: return copy.deepcopy(m)
         elif name is not None:
-            matchList = []
-            for m in self.chatroomList:
-                if name in m['NickName']: matchList.append(copy.deepcopy(m))
-            return matchList
+            return [copy.deepcopy(m) for m in self.chatroomList if name in m['NickName']]
     def search_mps(self, name=None, userName=None):
         if userName is not None:
             for m in self.mpList:
                 if m['UserName'] == userName: return copy.deepcopy(m)
         elif name is not None:
-            matchList = []
-            for m in self.mpList:
-                if name in m['NickName']: matchList.append(copy.deepcopy(m))
-            return matchList
+            return [copy.deepcopy(m) for m in self.mpList if name in m['NickName']]

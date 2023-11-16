@@ -17,10 +17,26 @@ except UnicodeEncodeError:
     BLOCK = 'MM'
 else:
     BLOCK = b
-friendInfoTemplate = {}
-for k in ('UserName', 'City', 'DisplayName', 'PYQuanPin', 'RemarkPYInitial', 'Province',
-    'KeyWord', 'RemarkName', 'PYInitial', 'EncryChatRoomId', 'Alias', 'Signature', 
-    'NickName', 'RemarkPYQuanPin', 'HeadImgUrl'): friendInfoTemplate[k] = ''
+friendInfoTemplate = {
+    k: ''
+    for k in (
+        'UserName',
+        'City',
+        'DisplayName',
+        'PYQuanPin',
+        'RemarkPYInitial',
+        'Province',
+        'KeyWord',
+        'RemarkName',
+        'PYInitial',
+        'EncryChatRoomId',
+        'Alias',
+        'Signature',
+        'NickName',
+        'RemarkPYQuanPin',
+        'HeadImgUrl',
+    )
+}
 for k in ('UniFriend', 'Sex', 'AppAccountFlag', 'VerifyFlag', 'ChatRoomId', 'HideInputBarFlag',
     'AttrStatus', 'SnsFlag', 'MemberCount', 'OwnerUin', 'ContactFlag', 'Uin',
     'StarFriend', 'Statues'): friendInfoTemplate[k] = 0

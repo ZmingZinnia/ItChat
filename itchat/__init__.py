@@ -81,13 +81,12 @@ def configured_reply():
     msg = __client.storageClass.msgList.pop()
     if '@@' in msg['FromUserName']:
         replyFn = __functionDict['GroupChat'].get(msg['Type'])
-        if replyFn: send(replyFn(msg), msg.get('FromUserName'))
     elif search_mps(userName=msg['FromUserName']):
         replyFn = __functionDict['MpChat'].get(msg['Type'])
-        if replyFn: send(replyFn(msg), msg.get('FromUserName'))
     else:
         replyFn = __functionDict['FriendChat'].get(msg['Type'])
-        if replyFn: send(replyFn(msg), msg.get('FromUserName'))
+
+    if replyFn: send(replyFn(msg), msg.get('FromUserName'))
 
 def msg_register(msgType, isFriendChat=False, isGroupChat=False, isMpChat=False):
     ''' a decorator constructor

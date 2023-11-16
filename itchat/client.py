@@ -76,7 +76,7 @@ class client(object):
         out.print_line('Login successfully as %s\n'%self.storageClass.nickName, False)
         self.start_receiving()
     def get_QRuuid(self):
-        url = '%s/jslogin'%BASE_URL
+        url = f'{BASE_URL}/jslogin'
         payloads = {
             'appid' : 'wx782c26e4c19acffb',
             'fun'   : 'new', }
@@ -88,8 +88,8 @@ class client(object):
             return self.uuid
     def get_QR(self, uuid = None, enableCmdQR = False):
         try:
-            if uuid == None: uuid = self.uuid
-            url = '%s/qrcode/%s'%(BASE_URL, uuid)
+            if uuid is None: uuid = self.uuid
+            url = f'{BASE_URL}/qrcode/{uuid}'
             r = self.s.get(url, stream = True)
             with open(QR_DIR, 'wb') as f: f.write(r.content)
             if enableCmdQR:
@@ -101,8 +101,8 @@ class client(object):
             return False
     def check_login(self, uuid = None):
         if uuid is None: uuid = self.uuid
-        url = '%s/cgi-bin/mmwebwx-bin/login'%BASE_URL
-        payloads = 'tip=1&uuid=%s&_=%s'%(uuid, int(time.time()))
+        url = f'{BASE_URL}/cgi-bin/mmwebwx-bin/login'
+        payloads = f'tip=1&uuid={uuid}&_={int(time.time())}'
         r = self.s.get(url, params = payloads)
         regx = r'window.code=(\d+)'
         data = re.search(regx, r.text)
@@ -114,14 +114,14 @@ class client(object):
             self.loginInfo['url'] = self.loginInfo['url'][:self.loginInfo['url'].rfind('/')]
             self.loginInfo['BaseRequest'] = {}
             for node in xml.dom.minidom.parseString(r.text).documentElement.childNodes:
-                if node.nodeName == 'skey':
+                if node.nodeName == 'pass_ticket':
+                    self.loginInfo['pass_ticket'] = self.loginInfo['BaseRequest']['DeviceID'] = node.childNodes[0].data
+                elif node.nodeName == 'skey':
                     self.loginInfo['skey'] = self.loginInfo['BaseRequest']['Skey'] = node.childNodes[0].data
                 elif node.nodeName == 'wxsid':
                     self.loginInfo['wxsid'] = self.loginInfo['BaseRequest']['Sid'] = node.childNodes[0].data
                 elif node.nodeName == 'wxuin':
                     self.loginInfo['wxuin'] = self.loginInfo['BaseRequest']['Uin'] = node.childNodes[0].data
-                elif node.nodeName == 'pass_ticket':
-                    self.loginInfo['pass_ticket'] = self.loginInfo['BaseRequest']['DeviceID'] = node.childNodes[0].data
             return '200'
         elif data and data.group(1) == '201':
             return '201'
@@ -130,7 +130,7 @@ class client(object):
         else:
             return '0'
     def web_init(self):
-        url = '%s/webwxinit?r=%s' % (self.loginInfo['url'], int(time.time()))
+        url = f"{self.loginInfo['url']}/webwxinit?r={int(time.time())}"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'], }
         headers = { 'ContentType': 'application/json; charset=UTF-8' }
@@ -139,12 +139,14 @@ class client(object):
         tools.emoji_formatter(dic['User'], 'NickName')
         self.loginInfo['User'] = tools.struct_friend_info(dic['User'])
         self.loginInfo['SyncKey'] = dic['SyncKey']
-        self.loginInfo['synckey'] = '|'.join(['%s_%s' % (item['Key'], item['Val']) for item in dic['SyncKey']['List']])
+        self.loginInfo['synckey'] = '|'.join(
+            [f"{item['Key']}_{item['Val']}" for item in dic['SyncKey']['List']]
+        )
         self.storageClass.userName = dic['User']['UserName']
         self.storageClass.nickName = dic['User']['NickName']
         return dic['User']
     def update_chatroom(self, userName):
-        url = '%s/webwxbatchgetcontact?type=ex&r=%s' % (self.loginInfo['url'], int(time.time()))
+        url = f"{self.loginInfo['url']}/webwxbatchgetcontact?type=ex&r={int(time.time())}"
         headers = { 'ContentType': 'application/json; charset=UTF-8' }
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
@@ -160,17 +162,20 @@ class client(object):
             tools.emoji_formatter(member, 'NickName')
             tools.emoji_formatter(member, 'DisplayName')
         j['isAdmin'] = j['OwnerUin'] == int(self.loginInfo['wxuin'])
-        oldIndex = None
-        for i, chatroom in enumerate(self.chatroomList):
-            if chatroom['UserName'] == j['UserName']:
-                oldIndex = i; break
+        oldIndex = next(
+            (
+                i
+                for i, chatroom in enumerate(self.chatroomList)
+                if chatroom['UserName'] == j['UserName']
+            ),
+            None,
+        )
         if oldIndex is not None: del self.chatroomList[oldIndex]
         self.chatroomList.insert(0, j)
         return j
     def get_friends(self, update=False):
-        if 1 < len(self.memberList) and not update: return copy.deepcopy(self.memberList)
-        url = '%s/webwxgetcontact?r=%s&seq=0&skey=%s' % (self.loginInfo['url'],
-            int(time.time()), self.loginInfo['skey'])
+        if len(self.memberList) > 1 and not update: return copy.deepcopy(self.memberList)
+        url = f"{self.loginInfo['url']}/webwxgetcontact?r={int(time.time())}&seq=0&skey={self.loginInfo['skey']}"
         headers = { 'ContentType': 'application/json; charset=UTF-8' }
         r = self.s.get(url, headers=headers)
         tempList = json.loads(r.content.decode('utf-8', 'replace'))['MemberList']
@@ -182,10 +187,13 @@ class client(object):
             tools.emoji_formatter(m, 'NickName')
             if m['Sex'] != 0:
                 self.memberList.append(m)
-            elif not (any([str(n) in m['UserName'] for n in range(10)]) and 
-                    any([chr(n) in m['UserName'] for n in (
-                    list(range(ord('a'), ord('z') + 1)) +
-                    list(range(ord('A'), ord('Z') + 1)))])):
+            elif all(str(n) not in m['UserName'] for n in range(10)) or all(
+                chr(n) not in m['UserName']
+                for n in (
+                    list(range(ord('a'), ord('z') + 1))
+                    + list(range(ord('A'), ord('Z') + 1))
+                )
+            ):
                 continue # userName have number and str
             elif '@@' in m['UserName']:
                 m['isAdmin'] = None # this value will be set after update_chatroom
@@ -203,7 +211,7 @@ class client(object):
         if update: self.get_friends(update=True)
         return copy.deepcopy(self.mpList)
     def show_mobile_login(self):
-        url = '%s/webwxstatusnotify'%self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/webwxstatusnotify"
         payloads = {
                 'BaseRequest': self.loginInfo['BaseRequest'],
                 'Code': 3,
@@ -239,7 +247,7 @@ class client(object):
         maintainThread.setDaemon(True)
         maintainThread.start()
     def __sync_check(self):
-        url = '%s/synccheck'%self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/synccheck"
         payloads = {
             'r': int(time.time()),
             'skey': self.loginInfo['skey'],
@@ -252,11 +260,9 @@ class client(object):
         regx = r'window.synccheck={retcode:"(\d+)",selector:"(\d+)"}'
         pm = re.search(regx, r.text)
 
-        if pm.group(1) != '0' : return None
-        return pm.group(2)
+        return None if pm.group(1) != '0' else pm.group(2)
     def __get_msg(self):
-        url = '%s/webwxsync?sid=%s&skey=%s'%(
-            self.loginInfo['url'], self.loginInfo['wxsid'], self.loginInfo['skey'])
+        url = f"{self.loginInfo['url']}/webwxsync?sid={self.loginInfo['wxsid']}&skey={self.loginInfo['skey']}"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'SyncKey': self.loginInfo['SyncKey'],
@@ -287,9 +293,9 @@ class client(object):
                     msg = {
                         'Type': 'Text',
                         'Text': m['Content'],}
-            elif m['MsgType'] == 3 or m['MsgType'] == 47: # picture
+            elif m['MsgType'] in [3, 47]: # picture
                 def download_picture(picDir=None):
-                    url = '%s/webwxgetmsgimg'%self.loginInfo['url']
+                    url = f"{self.loginInfo['url']}/webwxgetmsgimg"
                     payloads = {
                         'MsgID': m['NewMsgId'],
                         'skey': self.loginInfo['skey'],}
@@ -299,14 +305,15 @@ class client(object):
                         tempStorage.write(block)
                     if picDir is None: return tempStorage.getvalue()
                     with open(picDir, 'wb') as f: f.write(tempStorage.getvalue())
+
                 msg = {
-                    'Type'     : 'Picture',
-                    'FileName' : '%s.%s'%(time.strftime('%y%m%d-%H%M%S', time.localtime()),
-                        'png' if m['MsgType'] == 3 else 'gif'),
-                    'Text'     : download_picture, }
+                    'Type': 'Picture',
+                    'FileName': f"{time.strftime('%y%m%d-%H%M%S', time.localtime())}.{'png' if m['MsgType'] == 3 else 'gif'}",
+                    'Text': download_picture,
+                }
             elif m['MsgType'] == 34: # voice
                 def download_voice(voiceDir=None):
-                    url = '%s/webwxgetvoice'%self.loginInfo['url']
+                    url = f"{self.loginInfo['url']}/webwxgetvoice"
                     payloads = {
                         'msgid': m['NewMsgId'],
                         'skey': self.loginInfo['skey'],}
@@ -316,10 +323,12 @@ class client(object):
                         tempStorage.write(block)
                     if voiceDir is None: return tempStorage.getvalue()
                     with open(voiceDir, 'wb') as f: f.write(tempStorage.getvalue())
+
                 msg = {
                     'Type': 'Recording',
-                    'FileName' : '%s.mp4' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
-                    'Text': download_voice,}
+                    'FileName': f"{time.strftime('%y%m%d-%H%M%S', time.localtime())}.mp4",
+                    'Text': download_voice,
+                }
             elif m['MsgType'] == 37: # friends
                 msg = {
                     'Type': 'Friends',
@@ -335,13 +344,13 @@ class client(object):
             elif m['MsgType'] == 49: # sharing
                 if m['AppMsgType'] == 6:
                     def download_atta(attaDir=None):
-                        cookiesList = {name:data for name,data in self.s.cookies.items()}
+                        cookiesList = dict(self.s.cookies.items())
                         url = '/cgi-bin/mmwebwx-bin/webwxgetmedia'
                         if 'web.wechat.com' in self.loginInfo['url']:
-                            url = 'https://file.web%s.wechat.com' + url
+                            url = f'https://file.web%s.wechat.com{url}'
                         else:
-                            url = 'https://file%s.wx.qq.com' + url
-                        url = url % ('2' if '2' in self.loginInfo['url'] else '')
+                            url = f'https://file%s.wx.qq.com{url}'
+                        url %= '2' if '2' in self.loginInfo['url'] else ''
                         payloads = {
                             'sender': m['FromUserName'],
                             'mediaid': m['MediaId'],
@@ -355,6 +364,7 @@ class client(object):
                             tempStorage.write(block)
                         if attaDir is None: return tempStorage.getvalue()
                         with open(attaDir, 'wb') as f: f.write(tempStorage.getvalue())
+
                     msg = {
                         'Type': 'Attachment',
                         'Text': download_atta, }
@@ -378,7 +388,7 @@ class client(object):
                     'Text': m['ToUserName'], }
             elif m['MsgType'] == 62: # tiny video
                 def download_video(videoDir=None):
-                    url = '%s/webwxgetvideo'%self.loginInfo['url']
+                    url = f"{self.loginInfo['url']}/webwxgetvideo"
                     payloads = {
                         'msgid': m['MsgId'],
                         'skey': self.loginInfo['skey'],}
@@ -389,10 +399,12 @@ class client(object):
                         tempStorage.write(block)
                     if videoDir is None: return tempStorage.getvalue()
                     with open(videoDir, 'wb') as f: f.write(tempStorage.getvalue())
+
                 msg = {
                     'Type': 'Video',
-                    'FileName' : '%s.mp4' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
-                    'Text': download_video, }
+                    'FileName': f"{time.strftime('%y%m%d-%H%M%S', time.localtime())}.mp4",
+                    'Text': download_video,
+                }
             elif m['MsgType'] == 10000:
                 msg = {
                     'Type': 'Note',
@@ -435,7 +447,7 @@ class client(object):
             or self.storageClass.nickName, u'\u2005'
             if u'\u2005' in msg['Content'] else ' ') in msg['Content']
     def send_msg(self, msg ='Test Message', toUserName = None):
-        url = '%s/webwxsendmsg'%self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/webwxsendmsg"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'Msg': {
@@ -453,13 +465,13 @@ class client(object):
         if not tools.check_file(fileDir): return
         url = '/cgi-bin/mmwebwx-bin/webwxuploadmedia?f=json'
         if 'web.wechat.com' in self.loginInfo['url']:
-            url = 'https://file.web%s.wechat.com' + url
+            url = f'https://file.web%s.wechat.com{url}'
         else:
-            url = 'https://file%s.wx.qq.com' + url
-        url = url % ('2' if '2' in self.loginInfo['url'] else '')
+            url = f'https://file%s.wx.qq.com{url}'
+        url %= '2' if '2' in self.loginInfo['url'] else ''
         # save it on server
         fileSize = str(os.path.getsize(fileDir))
-        cookiesList = {name:data for name,data in self.s.cookies.items()}
+        cookiesList = dict(self.s.cookies.items())
         fileType = mimetypes.guess_type(fileDir)[0] or 'application/octet-stream'
         files = {
             'id': (None, 'WU_FILE_0'),
@@ -485,19 +497,24 @@ class client(object):
         if toUserName is None: toUserName = self.storageClass.userName
         mediaId = self.__upload_file(fileDir)
         if mediaId is None: return False
-        url = '%s/webwxsendappmsg?fun=async&f=json'%self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/webwxsendappmsg?fun=async&f=json"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'Msg': {
                 'Type': 6,
-                'Content': ("<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title>"%os.path.basename(fileDir) +
-                    "<des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl>" +
-                    "<appattach><totallen>%s</totallen><attachid>%s</attachid>"%(str(os.path.getsize(fileDir)), mediaId) +
-                    "<fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>"%os.path.splitext(fileDir)[1].replace('.','')), 
+                'Content': (
+                    (
+                        f"<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>{os.path.basename(fileDir)}</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl>"
+                        + f"<appattach><totallen>{str(os.path.getsize(fileDir))}</totallen><attachid>{mediaId}</attachid>"
+                    )
+                    + f"<fileext>{os.path.splitext(fileDir)[1].replace('.', '')}</fileext></appattach><extinfo></extinfo></appmsg>"
+                ),
                 'FromUserName': self.storageClass.userName,
                 'ToUserName': toUserName,
                 'LocalID': str(time.time() * 1e7),
-                'ClientMsgId': str(time.time() * 1e7), }, }
+                'ClientMsgId': str(time.time() * 1e7),
+            },
+        }
         headers = {
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.80 Safari/537.36',
             'Content-Type': 'application/json;charset=UTF-8', }
@@ -505,9 +522,9 @@ class client(object):
         return True
     def send_image(self, fileDir, toUserName = None):
         if toUserName is None: toUserName = self.storageClass.userName
-        mediaId = self.__upload_file(fileDir, isPicture = not fileDir[-4:] == '.gif')
+        mediaId = self.__upload_file(fileDir, isPicture=fileDir[-4:] != '.gif')
         if mediaId is None: return False
-        url = '%s/webwxsendmsgimg?fun=async&f=json'%self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/webwxsendmsgimg?fun=async&f=json"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'Msg': {
@@ -518,7 +535,7 @@ class client(object):
                 'LocalID': str(time.time() * 1e7),
                 'ClientMsgId': str(time.time() * 1e7), }, }
         if fileDir[-4:] == '.gif':
-            url = '%s/webwxsendemoticon?fun=sys'%self.loginInfo['url']
+            url = f"{self.loginInfo['url']}/webwxsendemoticon?fun=sys"
             payloads['Msg']['Type'] = 47
             payloads['Msg']['EmojiFlag'] = 2
         headers = {
@@ -530,8 +547,7 @@ class client(object):
         if toUserName is None: toUserName = self.storageClass.userName
         mediaId = self.__upload_file(fileDir, isVideo = True)
         if mediaId is None: return False
-        url = '%s/webwxsendvideomsg?fun=async&f=json&pass_ticket=%s' % (
-            self.loginInfo['url'], self.loginInfo['pass_ticket'])
+        url = f"{self.loginInfo['url']}/webwxsendvideomsg?fun=async&f=json&pass_ticket={self.loginInfo['pass_ticket']}"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'Msg': {
@@ -548,8 +564,7 @@ class client(object):
         r = self.s.post(url, data = json.dumps(payloads, ensure_ascii = False).encode('utf8'), headers = headers)
         return True
     def set_alias(self, userName, alias):
-        url = '%s/webwxoplog?lang=%s&pass_ticket=%s'%(
-            self.loginInfo['url'], 'zh_CN', self.loginInfo['pass_ticket'])
+        url = f"{self.loginInfo['url']}/webwxoplog?lang=zh_CN&pass_ticket={self.loginInfo['pass_ticket']}"
         data = {
             'UserName'    : userName,
             'CmdId'       : 2,
@@ -561,7 +576,7 @@ class client(object):
         ''' Add a friend or accept a friend
             * for adding status should be 2
             * for accepting status should be 3 '''
-        url = '%s/webwxverifyuser?r=%s&pass_ticket=%s'%(self.loginInfo['url'], int(time.time()), self.loginInfo['pass_ticket'])
+        url = f"{self.loginInfo['url']}/webwxverifyuser?r={int(time.time())}&pass_ticket={self.loginInfo['pass_ticket']}"
         payloads = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'Opcode': status, # 3
@@ -587,19 +602,18 @@ class client(object):
         params = {
             'userName': userName or chatroomUserName,
             'skey': self.loginInfo['skey'], }
-        url = '%s/webwxgeticon' % self.loginInfo['url']
+        url = f"{self.loginInfo['url']}/webwxgeticon"
         if chatroomUserName is None:
             infoDict = self.storageClass.search_friends(userName=userName)
             if infoDict is None: return None
+        elif userName is None:
+            url = f"{self.loginInfo['url']}/webwxgetheadimg"
         else:
-            if userName is None:
-                url = '%s/webwxgetheadimg' % self.loginInfo['url']
-            else:
-                chatroom = self.storageClass.search_chatrooms(userName=chatroomUserName)
-                if chatroomUserName is None: return None
-                if chatroom['EncryChatRoomId'] == '':
-                    chatroom = self.update_chatroom(chatroomUserName)
-                params['chatroomid'] = chatroom['EncryChatRoomId']
+            chatroom = self.storageClass.search_chatrooms(userName=chatroomUserName)
+            if chatroomUserName is None: return None
+            if chatroom['EncryChatRoomId'] == '':
+                chatroom = self.update_chatroom(chatroomUserName)
+            params['chatroomid'] = chatroom['EncryChatRoomId']
         r = self.s.get(url, params=params, stream=True)
         tempStorage = io.BytesIO()
         for block in r.iter_content(1024):
@@ -607,8 +621,7 @@ class client(object):
         if picDir is None: return tempStorage.getvalue()
         with open(picDir, 'wb') as f: f.write(tempStorage.getvalue())
     def create_chatroom(self, memberList, topic = ''):
-        url = ('%s/webwxcreatechatroom?pass_ticket=%s&r=%s'%(
-                self.loginInfo['url'], self.loginInfo['pass_ticket'], int(time.time())))
+        url = f"{self.loginInfo['url']}/webwxcreatechatroom?pass_ticket={self.loginInfo['pass_ticket']}&r={int(time.time())}"
         data = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'MemberCount': len(memberList),
@@ -618,8 +631,7 @@ class client(object):
         r = self.s.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf8', 'ignore'),headers=headers)
         return r.json()
     def set_chatroom_name(self, chatroomUserName, name):
-        url = ('%s/webwxupdatechatroom?fun=modtopic&pass_ticket=%s'%(
-            self.loginInfo['url'], self.loginInfo['pass_ticket']))
+        url = f"{self.loginInfo['url']}/webwxupdatechatroom?fun=modtopic&pass_ticket={self.loginInfo['pass_ticket']}"
         data = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'ChatRoomName': chatroomUserName,
@@ -627,8 +639,7 @@ class client(object):
         headers = {'content-type': 'application/json; charset=UTF-8'}
         return self.s.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf8', 'ignore'), headers=headers).json()
     def delete_member_from_chatroom(self, chatroomUserName, memberList):
-        url = ('%s/webwxupdatechatroom?fun=delmember&pass_ticket=%s'%(
-            self.loginInfo['url'], self.loginInfo['pass_ticket']))
+        url = f"{self.loginInfo['url']}/webwxupdatechatroom?fun=delmember&pass_ticket={self.loginInfo['pass_ticket']}"
         params = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'ChatRoomName': chatroomUserName,
@@ -636,8 +647,7 @@ class client(object):
         headers = {'content-type': 'application/json; charset=UTF-8'}
         return self.s.post(url, data=json.dumps(params),headers=headers).json()
     def add_member_into_chatroom(self, chatroomUserName, memberList):
-        url = ('%s/webwxupdatechatroom?fun=addmember&pass_ticket=%s'%(
-            self.loginInfo['url'], self.loginInfo['pass_ticket']))
+        url = f"{self.loginInfo['url']}/webwxupdatechatroom?fun=addmember&pass_ticket={self.loginInfo['pass_ticket']}"
         params = {
             'BaseRequest': self.loginInfo['BaseRequest'],
             'ChatRoomName': chatroomUserName,
